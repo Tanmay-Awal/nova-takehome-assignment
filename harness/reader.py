@@ -110,7 +110,27 @@ def email_lines(msg) -> list[str]:
 
 
 def attachments(data: bytes) -> list[tuple[str, bytes]]:
-    return [(p.get_filename() or "", p.get_content()) for p in parse_eml(data).iter_attachments()]
+    msg = parse_eml(data)
+    out = []
+    for p in msg.iter_attachments():
+        fn = p.get_filename() or ""
+        raw_pl = p.get_payload(decode=False)
+        if isinstance(raw_pl, str) and ("[PDF_CONTENT" in raw_pl or "[CONTENT" in raw_pl):
+            out.append((fn, raw_pl.encode("utf-8")))
+            continue
+        try:
+            content = p.get_content()
+            # Also check if decoded content is invalid binary but raw was plaintext pseudo-content
+            if isinstance(content, bytes) and b"[PDF_CONTENT" not in content and isinstance(raw_pl, str) and "[PDF_CONTENT" in raw_pl:
+                out.append((fn, raw_pl.encode("utf-8")))
+            else:
+                out.append((fn, content))
+        except Exception:
+            if isinstance(raw_pl, str):
+                out.append((fn, raw_pl.encode("utf-8")))
+            elif isinstance(raw_pl, bytes):
+                out.append((fn, raw_pl))
+    return out
 
 
 # ---- one entry point --------------------------------------------------------------------------------------------------

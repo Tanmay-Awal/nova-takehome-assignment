@@ -12,14 +12,14 @@ from __future__ import annotations
 import re
 
 DATE = r"\d{4}-\d{2}-\d{2}"
-AWB = r"[A-Z]{2}\d{8}(?:-H\d+)?"
+AWB = r"(?:AWB[-_]?[A-Z0-9]+|\d{3}-\d{8}|[A-Z]{2}\d{6,10}(?:-H\d+)?|[A-Z]{2,3}[-_]\d{3,10}(?:-H\d+)?)"
 INVID = r"[A-Z]{2,4}[-/][A-Z0-9][A-Z0-9/-]*\d[A-Z0-9/-]*"
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
 
 DEFAULT_VOCAB = [
     "delivery fee", "door delivery", "final-mile delivery", "storage programme fee", "storage programme", "storage",
     "warehouse storage", "demurrage", "customs hold fee", "customs examination", "hold handling", "security surcharge",
-    "screening fee", "security screening", "dangerous goods fee", "dg handling", "hazmat handling", "dry ice handling fee",
+    "security charge", "security fee", "security screening fee", "screening fee", "security screening", "dangerous goods fee", "dg handling", "hazmat handling", "dry ice handling fee",
     "dry ice handling", "peak season surcharge", "monthly account fee", "account maintenance", "pickup programme fee",
     "pickup programme", "late payment fee", "late fee", "overdue interest", "fuel surcharge", "special handling",
     "supplementary handling", "air freight", "express freight", "freight charge", "handling margin", "forwarding margin",
@@ -116,11 +116,21 @@ def parse_text_facts(text: str, quoted: bool, vocab=None) -> list[dict]:
                               "quote": s, "quoted": quoted})
         # ---- shipment events
         awb_m = re.search(AWB, s)
-        if awb_m and re.search(DATE, s):
-            d = re.search(DATE, s).group(0)
+        dm = re.search(DATE, s) or re.search(r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b", s, re.I)
+        if awb_m and dm:
+            from invoices import parse_date
+            d = parse_date(dm.group(0))
             stn = re.search(r"\bat\s+([A-Z]{3,4}\d?)\b", s)
-            if re.search(r"picked up|collected from (?:the )?shipper|pickup completed", s, re.I) and not re.search(r"collected by the consignee", s, re.I):
-                facts.append({"type": "event", "event": "PICKED_UP", "awb": awb_m.group(0), "date": d, "station": stn.group(1) if stn else None, "quote": s, "quoted": quoted})
+            m_gw = re.search(r"Actual Gross Weight\s*:?\s*(\d+(?:\.\d+)?)\s*kg", s, re.I)
+            m_dim = re.search(r"\b(\d+)\s*(?:boxes|pcs|pieces)\s*,?\s*(?:each\s*)?(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*cm", s, re.I)
+            actual_kg = float(m_gw.group(1)) if m_gw else None
+            dims = {"pcs": int(m_dim.group(1)), "l": float(m_dim.group(2)), "w": float(m_dim.group(3)), "h": float(m_dim.group(4))} if m_dim else None
+
+            if re.search(r"picked up|collected from (?:the )?shipper|pickup completed|event:\s*picked_up", s, re.I) and not re.search(r"collected by the consignee", s, re.I):
+                evt = {"type": "event", "event": "PICKED_UP", "awb": awb_m.group(0), "date": d, "station": stn.group(1) if stn else None, "quote": s, "quoted": quoted}
+                if actual_kg is not None: evt["actual_kg"] = actual_kg
+                if dims is not None: evt["dimensions"] = dims
+                facts.append(evt)
             elif re.search(r"collected by the consignee|picked up by the consignee", s, re.I):
                 facts.append({"type": "event", "event": "COLLECTED_BY_CONSIGNEE", "awb": awb_m.group(0), "date": d, "station": stn.group(1) if stn else None, "quote": s, "quoted": quoted})
             elif re.search(r"\bwas delivered\b|\bdelivered on\b|\bdelivery completed\b", s, re.I):
@@ -137,6 +147,16 @@ def parse_text_facts(text: str, quoted: bool, vocab=None) -> list[dict]:
         m = re.search(r"\bextend(?:s|ed|ing)?\b[^.]*?\b(?:agreement|contract)\s+(?P<c>[A-Z]{2,4}-[A-Z0-9-]+)[^.]*?\b(?:to|until|through)\s+(?P<d>" + DATE + ")", s, re.I)
         if m:
             facts.append({"type": "contract_extension", "contract": m.group("c").upper(), "new_end": m.group("d"), "quote": s, "quoted": quoted})
+        # ---- revised annex notice
+        m_annex = re.search(r'["\']?(Annex\s+[A-Z](?:\s*rev(?:ision)?\s*\d+)?)["\']?\s+is\s+now\s+in\s+effect\s+for\s+(?:contract\s+)?([A-Z0-9-]+)', s, re.I)
+        if m_annex:
+            m_eff = re.search(r'(?:from|effective|starting)\s+([A-Za-z0-9,\s]+?)(?:\s+onward|\.|$)', s, re.I)
+            eff_d = None
+            if m_eff:
+                from invoices import parse_date
+                eff_d = parse_date(m_eff.group(1).strip())
+            facts.append({"type": "revised_annex_notice", "annex": m_annex.group(1).strip(), "contract": m_annex.group(2).strip(),
+                          "effective_from": eff_d, "quote": s, "quoted": quoted})
         # ---- instructions aimed at an automated reader
         if INSTR.search(s):
             facts.append({"type": "instruction", "quote": s, "quoted": quoted})

@@ -1,127 +1,175 @@
 {
  "harness": "harness/harness.py",
- "passed": 20,
- "total": 20,
- "your_cases": 18,
+ "passed": 28,
+ "total": 28,
+ "your_cases": 28,
  "score": 1.0,
  "cases": [
   {
-   "case": "cb_not_yet_due.yaml",
-   "name": "quarter closed, credit not yet due",
+   "case": "st01_adversarial_email.yaml",
+   "name": "adversarial email instruction \u2014 overcharge still flagged",
    "pass": true,
    "diff": []
   },
   {
-   "case": "du_before_ledger.yaml",
-   "name": "as_of before the AP register arrives",
+   "case": "st02_waiver_batch01.yaml",
+   "name": "one-off waiver \u2014 March security charge waived but billed",
    "pass": true,
    "diff": []
   },
   {
-   "case": "du_big_autonomous.yaml",
-   "name": "duplicate of 5000+ goes to human review (autonomous)",
+   "case": "st02_waiver_batch02.yaml",
+   "name": "one-off waiver \u2014 April invoice must NOT be flagged",
    "pass": true,
    "diff": []
   },
   {
-   "case": "du_big_supervised.yaml",
-   "name": "duplicate of 5000+ goes to human review (supervised)",
+   "case": "st03_backdated_amendment.yaml",
+   "name": "backdated amendment \u2014 retro overcharge appears in batch_02",
    "pass": true,
    "diff": []
   },
   {
-   "case": "du_marked_copy.yaml",
-   "name": "resend marked as a copy for your records",
+   "case": "st04_duplicate_months_apart.yaml",
+   "name": "duplicate billed 4 months apart with different wording",
    "pass": true,
    "diff": []
   },
   {
-   "case": "ex_extended.yaml",
-   "name": "extension moves the end date outside 60 days",
+   "case": "st05_new_layout.yaml",
+   "name": "new carrier and invoice layout \u2014 overcharge on PFC",
    "pass": true,
    "diff": []
   },
   {
-   "case": "lf_extension_too_short.yaml",
-   "name": "extended due date still leaves the payment late",
+   "case": "st06_conflict.yaml",
+   "name": "conflict \u2014 two amendments signed same date for same lane",
    "pass": true,
    "diff": []
   },
   {
-   "case": "lf_threeletter_ids_excess.yaml",
-   "name": "late fee billed on a three-letter invoice number: excess",
+   "case": "st07_cannot_determine.yaml",
+   "name": "cannot determine \u2014 missing Annex A rev 3",
    "pass": true,
    "diff": []
   },
   {
-   "case": "lf_threeletter_ids_ok.yaml",
-   "name": "late fee billed on a three-letter invoice number: ok",
+   "case": "st08_autonomous_gate.yaml",
+   "name": "autonomous mode gate \u2014 overcharge >= $5,000 must be human_review",
    "pass": true,
    "diff": []
   },
   {
-   "case": "oc_band_edge_clean.yaml",
-   "name": "100 kg sits in the 100-299.5 band",
+   "case": "st09_clean_lookalike.yaml",
+   "name": "clean invoice at weight band boundary \u2014 no finding",
    "pass": true,
    "diff": []
   },
   {
-   "case": "oc_feedback_close.yaml",
-   "name": "feedback closes a dispute",
+   "case": "st10_accepted_rate_clean.yaml",
+   "name": "feedback \u2014 accepted rate invoice is no_finding after feedback",
    "pass": true,
    "diff": []
   },
   {
-   "case": "oc_injection_ignored.yaml",
-   "name": "instruction aimed at the AI is data, not a command",
+   "case": "st10_before_feedback.yaml",
+   "name": "feedback \u2014 batch_01 overcharge before feedback",
    "pass": true,
    "diff": []
   },
   {
-   "case": "oc_minimum_charge.yaml",
-   "name": "billed above the per-shipment minimum",
+   "case": "st10_new_overcharge_learned.yaml",
+   "name": "feedback \u2014 new overcharge measured against accepted rate with learned_at",
    "pass": true,
    "diff": []
   },
   {
-   "case": "oc_period_boundary.yaml",
-   "name": "pickup date from tracking puts the shipment in period P1",
+   "case": "st11_grace_period.yaml",
+   "name": "late fee billed despite payment within 7-day grace period",
    "pass": true,
    "diff": []
   },
   {
-   "case": "oc_period_boundary_clean.yaml",
-   "name": "pickup on the first day of P2 is billed correctly",
+   "case": "st12_late_fee_risk.yaml",
+   "name": "unpaid invoice entering 14-day late fee risk window",
    "pass": true,
    "diff": []
   },
   {
-   "case": "sample_conflict.yaml",
-   "name": "amendment and rate notice disagree",
+   "case": "st13_contract_expiry.yaml",
+   "name": "contract entering 60-day non-renewal notice window",
    "pass": true,
    "diff": []
   },
   {
-   "case": "sample_overcharge.yaml",
-   "name": "wrong rate on one freight line",
+   "case": "st14_rebate_due.yaml",
+   "name": "quarterly volume rebate earned and past due date",
    "pass": true,
    "diff": []
   },
   {
-   "case": "wb_quoted_waiver.yaml",
-   "name": "waiver is only quoted in a forward",
+   "case": "st15_autonomous_exec.yaml",
+   "name": "autonomous mode unblocked overcharge promotes to execute:dispute",
    "pass": true,
    "diff": []
   },
   {
-   "case": "wb_unlisted_sender.yaml",
-   "name": "waiver written by someone outside Schedule 1",
+   "case": "st16_unauthorized_sender.yaml",
+   "name": "unauthorized sales email does not change contract rate",
    "pass": true,
    "diff": []
   },
   {
-   "case": "xc_unauthorised_notice.yaml",
-   "name": "rate notice from an unlisted sender is no conflict",
+   "case": "st17_waived_demurrage.yaml",
+   "name": "demurrage fee waived by authorized contact but billed",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st18_volumetric_weight.yaml",
+   "name": "carrier uses incorrect volumetric divisor inflating chargeable weight",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st19_credit_note_reversal.yaml",
+   "name": "re-issued invoice after full credit note reversal is clean",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st20_conflict_isolation.yaml",
+   "name": "open conflict on another lane does not block autonomous execution",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st21_supersedes.yaml",
+   "name": "partial credit note in batch 2 reduces overcharge amount",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st22_annual_credit.yaml",
+   "name": "contract year 1 closed annual improvement credit tracked",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st23_missing_fx.yaml",
+   "name": "cannot determine \u2014 missing Annex F row for February 2035",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st24_resolve_conflict.yaml",
+   "name": "feedback resolves conflict in favor of amendment 3",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "st25_partial_credit_duplicate.yaml",
+   "name": "duplicate billed with partial credit note reversal",
    "pass": true,
    "diff": []
   }

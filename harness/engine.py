@@ -340,7 +340,8 @@ def duplicates(ctx: Ctx):
             ident = norm_awb(ln.get("awb") or "") or (ln.get("reference") and "ref:" + ln["reference"])
             if not code or not ident or code in ("TAX", "LATE"):
                 continue
-            k = (c.id, ident, ln.get("awb") if ln.get("awb") else "", code, str(money(ln["amount"])))
+            full_awb = re.sub(r"^(?:AWB|MAWB|HAWB)[-_]?", "", ln.get("awb") or "", flags=re.I).strip()
+            k = (c.id, ident, full_awb, code, str(money(ln["amount"])))
             # house AWBs of one master are different shipments, so the full AWB is compared
             if k in seen and seen[k][0]["d"]["invoice_id"] != d["invoice_id"] and k not in used:
                 dups.append((ln, seen[k]))
@@ -451,10 +452,28 @@ def overcharges(ctx: Ctx):
         if closing:
             continue
         diff = pr.diff
+        inv_key = norm_inv(d["invoice_id"])
+        credits_applied = Decimal(0)
+        credit_ev = []
+        for cr in w.credit_notes:
+            cr_d = cr["d"]
+            refs = (cr_d.get("credit") or {}).get("invoice_refs", [])
+            if inv_key in [norm_inv(r) for r in refs]:
+                cr_tot = money(abs(cr_d.get("total") or 0))
+                if cr_tot > 0:
+                    credits_applied += cr_tot
+                    tl = total_line(w, cr)
+                    if tl:
+                        credit_ev.append(tl)
+        if credits_applied > 0:
+            diff = max(Decimal(0), diff - credits_applied)
+        if diff <= 0:
+            continue
         ev = []
         for l in pr.lines:
             if l["diff"] > 0:
                 ev += l["ev"]
+        ev += credit_ev
         usd, fxr = w.to_usd(c, diff, d.get("invoice_date"), inv_cur)
         if usd is None:
             ctx.items.append(_fx_missing(ctx, c, rec, "overcharge", ev))
@@ -609,7 +628,8 @@ def late_fee_risk(ctx: Ctx):
         if principal <= 0:
             continue
         fee = money(Decimal(str(pct)) / 100 * principal)
-        usd, fxr = w.to_usd(c, fee, rec["d"].get("invoice_date"), row.get("currency") or rec["d"].get("currency", "USD"))
+        fee_date = due.isoformat() if due else rec["d"].get("invoice_date")
+        usd, fxr = w.to_usd(c, fee, fee_date, row.get("currency") or rec["d"].get("currency", "USD"))
         ev = [{"doc": row["doc"]["ref"], "page": row.get("page", 1), "quote": row["line"]}, clause_ev(c, "10.2")]
         if ext_ev:
             ev.append(ext_ev)
@@ -764,46 +784,70 @@ def cashback(ctx: Ctx):
         eff = pdate(c.term("effective_date"))
         dates = [pdate(r["d"].get("invoice_date")) for r in w.invoices if w.contract_of(r) is c]
         dates = [d for d in dates if d]
-        if not dates:
-            continue
         # ---- quarterly volume rebate
-        qs_set = sorted({quarter_of(d) for d in dates})
-        due_days = c.term("rebate_due_days")
-        for q in qs_set:
-            qe = quarter_end(q)
-            if not (w.asd > qe):
-                continue
-            from datetime import date
-            qstart = date(int(q[:4]), (int(q[-1]) - 1) * 3 + 1, 1)
-            qs, ev, miss = spend(ctx, c, qstart, qe)
-            if miss:
-                continue
-            if qs is None or not c.term("rebate_tiers"):
-                continue
-            amt = rebate_amount(c, qs)
-            held, hev = credits_held(ctx, c, "rebate", q)
-            owed = amt - held
-            if owed <= 0:
-                continue
-            ev2 = [clause_ev(c, "7.1", 400), clause_ev(c, "1.1", 500)] + ev
-            _emit_cashback(ctx, c, q, "rebate", owed, qe, due_days, ev2)
+        if dates:
+            qs_set = sorted({quarter_of(d) for d in dates})
+            due_days = c.term("rebate_due_days")
+            for q in qs_set:
+                qe = quarter_end(q)
+                if not (w.asd > qe):
+                    continue
+                from datetime import date
+                qstart = date(int(q[:4]), (int(q[-1]) - 1) * 3 + 1, 1)
+                qs, ev, miss = spend(ctx, c, qstart, qe)
+                if miss:
+                    continue
+                if qs is None or not c.term("rebate_tiers"):
+                    continue
+                amt = rebate_amount(c, qs)
+                held, hev = credits_held(ctx, c, "rebate", q)
+                owed = amt - held
+                if owed <= 0:
+                    continue
+                reb_cl = (c.terms.get("rebate_tiers") or {}).get("clause") or "7.1"
+                ev2 = [e for e in [clause_ev(c, reb_cl, 400), clause_ev(c, "1.1", 500)] if e] + ev
+                _emit_cashback(ctx, c, q, "rebate", owed, qe, due_days, ev2)
         # ---- annual improvement / promised credit by contract year
-        pct, days = c.term("annual_credit_pct"), c.term("annual_credit_days")
-        if pct and eff:
+        pct = c.term("annual_credit_pct")
+        fixed_amt = c.term("annual_credit_amount")
+        days = c.term("annual_credit_days", 45)
+        cy_map = c.term("annual_credit_cy") or {}
+        ac_clause = (c.terms.get("annual_credit_amount") or c.terms.get("annual_credit_pct") or {}).get("clause") or "7.2"
+
+        if (pct or fixed_amt) and eff:
             n = 1
             while True:
-                start = add_months(eff, 12 * (n - 1))
-                end = add_months(eff, 12 * n) - __import__("datetime").timedelta(days=1)
-                if not (w.asd > end) or start > max(dates):
+                period_str = f"CY{n}"
+                if period_str in cy_map:
+                    start, end = pdate(cy_map[period_str][0]), pdate(cy_map[period_str][1])
+                else:
+                    start = add_months(eff, 12 * (n - 1))
+                    end = add_months(eff, 12 * n) - __import__("datetime").timedelta(days=1)
+                if not (w.asd > end):
                     break
-                qs, ev, miss = spend(ctx, c, start, end)
-                if qs is not None and not miss:
-                    amt = money(qs * Decimal(str(pct)) / 100)
-                    held, _ = credits_held(ctx, c, "promised_credit", f"CY{n}")
-                    owed = amt - held
-                    if owed > 0:
-                        ev2 = [clause_ev(c, "9.1", 400), clause_ev(c, "1.1", 500), clause_ev(c, "1.4")] + ev
-                        _emit_cashback(ctx, c, f"CY{n}", "promised_credit", owed, end, days, ev2)
+                if fixed_amt:
+                    cur = c.term("annual_credit_currency") or c.currency
+                    amt_raw = money(Decimal(str(fixed_amt)))
+                    usd, fxr = w.to_usd(c, amt_raw, w.asd.isoformat(), cur)
+                    if usd is not None:
+                        held, _ = credits_held(ctx, c, "promised_credit", period_str)
+                        owed = usd - held
+                        if owed > 0:
+                            ev2 = [e for e in [clause_ev(c, ac_clause, 400), clause_ev(c, "1.1", 500)] if e]
+                            if fxr:
+                                ev2.append({"doc": c.msa_doc["ref"], "page": fxr["page"], "quote": fxr["line"]})
+                            _emit_cashback(ctx, c, period_str, "promised_credit", owed, end, days, ev2)
+                elif pct:
+                    if dates and start > max(dates):
+                        break
+                    qs, ev, miss = spend(ctx, c, start, end)
+                    if qs is not None and not miss:
+                        amt = money(qs * Decimal(str(pct)) / 100)
+                        held, _ = credits_held(ctx, c, "promised_credit", period_str)
+                        owed = amt - held
+                        if owed > 0:
+                            ev2 = [clause_ev(c, ac_clause, 400), clause_ev(c, "1.1", 500), clause_ev(c, "1.4")] + ev
+                            _emit_cashback(ctx, c, period_str, "promised_credit", owed, end, days, ev2)
                 n += 1
 
 
@@ -834,7 +878,7 @@ def expiry(ctx: Ctx):
         for x in w.email_facts:
             if x["type"] == "contract_extension" and x["contract"] == c.id and not x.get("quoted"):
                 p = c.person_by_email(x["doc"]["from_addr"])
-                if p and pdate(x["new_end"]) and pdate(x["new_end"]) > end:
+                if (p or not c.schedule1()) and pdate(x["new_end"]) and pdate(x["new_end"]) > end:
                     end = pdate(x["new_end"])
                     ev = [{"doc": x["doc"]["ref"], "page": 1, "quote": x["quote"]}]
         deadline = end

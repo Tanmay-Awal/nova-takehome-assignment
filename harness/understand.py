@@ -216,6 +216,23 @@ def understand_doc(d: dict, vocab: list[str]) -> dict | None:
         doc = invoices.statement_to_doc(st, pages)
         doc["issues"] = invoices.validate(doc)
         return {"kind": "statement", "data": doc, "method": "rules", "issues": doc["issues"]}
+    if k == "payment_advice":
+        text = "\n".join(pages)
+        inv_m = re.search(r"(?:Invoice\s*Settled|Invoice\s*No|Invoice|Settled|Ref)\s*:?\s*([A-Z0-9][A-Z0-9/-]*\d[A-Z0-9/-]*)", text, re.I)
+        if not inv_m:
+            inv_m = re.search(r"Invoice\s+([A-Z0-9][A-Z0-9/-]*)", d.get("subject", ""), re.I)
+        amt_m = re.search(r"(?:Amount\s*Paid|Amount|Paid)\s*:?\s*(?:INR|USD|EUR|GBP)?\s*([\d,]+(?:\.\d+)?)", text, re.I)
+        cur_m = re.search(r"\b(INR|USD|EUR|GBP)\b", text)
+        dm = re.search(r"(?:Payment\s*Date|Paid\s*Date|Date)\s*:?\s*([A-Za-z0-9,\s]+?)(?:\n|$)", text, re.I)
+        paid_d = invoices.parse_date(dm.group(1).strip()) if dm else d.get("received")
+        data = {
+            "invoice_id": inv_m.group(1).strip() if inv_m else None,
+            "paid_date": paid_d,
+            "amount": float(amt_m.group(1).replace(",", "")) if amt_m else None,
+            "currency": cur_m.group(1) if cur_m else "USD",
+            "status": "paid"
+        }
+        return {"kind": "payment_advice", "data": data, "method": "rules"}
     if k == "tracking":
         return {"kind": k, "data": {"events": tables.parse_tracking(pages)}, "method": "rules"}
     if k == "ap_register":

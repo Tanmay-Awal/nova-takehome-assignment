@@ -21,8 +21,8 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "grader"))
 sys.path.insert(0, str(ROOT / "tools"))
-import score as S  # noqa: E402
-from run_mailbox import run  # noqa: E402
+import score as S  # type: ignore # noqa: E402
+from run_mailbox import run  # type: ignore # noqa: E402
 
 
 def find_item(report: dict, key: dict) -> dict | None:
@@ -33,7 +33,7 @@ def find_item(report: dict, key: dict) -> dict | None:
     return None
 
 
-def check(case: dict, item: dict | None) -> list[str]:
+def check(case: dict, item: dict | None, report: dict | None = None) -> list[str]:
     """-> what differs (empty when the case passes)."""
     exp = case["expect"]
     v = exp.get("verdict", "finding")
@@ -41,7 +41,8 @@ def check(case: dict, item: dict | None) -> list[str]:
         return [] if item is None or item.get("verdict") == "no_finding" else \
             [f"expected no finding, got {item.get('verdict')} {item.get('amount_usd') or ''}".strip()]
     if item is None:
-        return ["key missing from the report"]
+        rep_keys = [f"{it.get('invoice_id')}:{it.get('class')}" for it in S.report_items(report)] if report else []
+        return [f"key {exp.get('key')} missing (reported keys: {rep_keys})"]
     bad = []
     if item.get("verdict") != v:
         bad.append(f"verdict {item.get('verdict')}, expected {v}")
@@ -61,12 +62,24 @@ def check(case: dict, item: dict | None) -> list[str]:
     return bad
 
 
+def resolve_case_path(case_file: Path, p_str: str) -> Path:
+    p = Path(p_str)
+    if p.is_absolute() and p.exists():
+        return p
+    for base in [ROOT, case_file.parent.parent, case_file.parent, case_file.parent.parent.parent]:
+        cand = (base / p).resolve()
+        if cand.exists():
+            return cand
+    return (ROOT / p) if not p.is_absolute() else p
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="run_evals.py", description="score your eval cases")
     ap.add_argument("--harness", default="harness/harness.py")
     ap.add_argument("--cases", default=str(ROOT / "evals" / "cases"))
     ap.add_argument("--out", default=str(ROOT / "evals" / "results.json"))
     ap.add_argument("-k", help="only cases whose file name contains this")
+    ap.add_argument("-v", "--verbose", action="store_true", help="print diagnostic logs")
     ap.add_argument("--timeout", type=float, default=600.0)
     a = ap.parse_args(argv)
     files = sorted(Path(a.cases).glob("*.yaml"))
@@ -78,15 +91,23 @@ def main(argv=None) -> int:
     results = []
     for f in files:
         case = yaml.safe_load(f.read_text())
-        mailbox = (ROOT / case["mailbox"]) if not Path(case["mailbox"]).is_absolute() else Path(case["mailbox"])
-        fb = {k: (ROOT / v) for k, v in (case.get("feedback") or {}).items()}   # {batch_02: path/to/feedback.json}
+        mailbox = resolve_case_path(f, case["mailbox"])
+        fb_dict = dict(case.get("feedback") or {})
+        for k_fb, v_fb in case.items():
+            if k_fb.startswith("feedback_after_"):
+                b_name = k_fb.replace("feedback_after_", "")
+                fb_dict[b_name] = v_fb
+        fb = {k: resolve_case_path(f, v) for k, v in fb_dict.items()}
         with tempfile.TemporaryDirectory(prefix="eval-") as tmp:
+            st = Path(tmp) / "state"
             report, errors = run(a.harness, mailbox, str(case["as_of"]), case.get("mode", "supervised"),
-                                 Path(tmp) / "state", a.timeout, fb, log=lambda *_: None)
-        diff = errors if report is None else check(case, find_item(report, case["expect"]["key"]))
+                                 st, a.timeout, fb, log=lambda *_: None)
+
+        item_diff = check(case, find_item(report, case["expect"]["key"]), report) if report is not None else []
+        diff = errors + item_diff
         ok = not diff
         results.append({"case": f.name, "name": case.get("name"), "pass": ok, "diff": diff})
-        print(f"{'PASS' if ok else 'FAIL'}  {f.name}: {case.get('name', '')}" + ("" if ok else f"\n      {'; '.join(diff)[:400]}"))
+        print(f"{'PASS' if ok else 'FAIL'}  {f.name}: {case.get('name', '')}" + ("" if ok else f"\n      {'; '.join(diff)[:400]}\n      WHY: {case.get('why')}"))
     n = sum(r["pass"] for r in results)
     ours = sum(1 for r in results if r["case"].startswith("sample_"))
     summary = {"harness": a.harness, "passed": n, "total": len(results), "your_cases": len(results) - ours,

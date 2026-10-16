@@ -23,7 +23,8 @@ def clause_ev(c: Contract, num: str, limit: int = 300) -> dict | None:
     if len(t) > limit:
         cut = t.rfind(". ", 0, limit)
         t = t[: cut + 1] if cut > 60 else t[:limit]
-    return {"doc": c.msa_doc["ref"], "page": cl["page"], "quote": t}
+    doc_ref = cl.get("doc_ref") or c.msa_doc["ref"]
+    return {"doc": doc_ref, "page": cl.get("page", 1), "quote": t}
 
 
 def row_for_weight(rows: list[dict], kg: float):
@@ -130,13 +131,15 @@ def notice_authorised(w: World, c: Contract, fb: Feedback, x: dict, lane: str):
     doc = x["doc"]
     if x.get("quoted"):
         return False, None
+    when = pdate(doc["received"])
+    it = fb.accepted_rate(c.id, lane, pdate(x.get("effective_from")) or when, sender=doc["from_name"], effective_from=x.get("effective_from"))
+    if not it:
+        it = fb.accepted_rate(c.id, lane, pdate(x.get("effective_from")) or when)
+    if it:
+        return True, it
     p = c.person_by_email(doc["from_addr"])
     if p and "rates" in p["categories"] and p["party"] == c.carrier_party():
         return True, None
-    when = pdate(doc["received"])
-    it = fb.accepted_rate(c.id, lane, pdate(x.get("effective_from")) or when, sender=doc["from_name"], effective_from=x.get("effective_from"))
-    if it:
-        return True, it
     if p:
         it = fb.authority(p["name"], "rates", c.id, when)
         if it:
@@ -176,15 +179,68 @@ def resolve_rate(w: World, c: Contract, fb: Feedback, lane: str, pickup) -> Reso
     eff = pdate(c.term("effective_date"))
     if eff and pickup < eff:
         return Resolution("none", why="pickup before the contract took effect")
+
+    # If user feedback explicitly accepted a rate for this contract and lane
+    acc = fb.accepted_rate(c.id, lane, pickup)
+    if acc:
+        txt = (acc.get("fact", {}).get("evidence") or "") + " " + (acc.get("note") or "")
+        m_r = re.search(r"(\d+(?:\.\d+)?)\s*(?:/kg|per kg|INR/kg|\$|USD)", txt)
+        if m_r:
+            rate_v = Decimal(m_r.group(1))
+            m_b = re.search(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*kg", txt)
+            lo = float(m_b.group(1)) if m_b else 0.0
+            hi = float(m_b.group(2)) if m_b else None
+            quote_text = acc.get("fact", {}).get("evidence") or acc.get("note") or ""
+            out_rows = [{"band": f"{lo}-{hi}" if hi else f"{lo}+", "lo": lo, "hi": hi, "v": rate_v,
+                         "ev": {"doc": c.msa_doc["ref"], "page": 1, "quote": quote_text[:120]}}]
+            cand = Cand("feedback_rate", out_rows, 0, "feedback", "accepted rate", learned=acc, eff=pdate(acc.get("scope", {}).get("valid_from")))
+            return Resolution("ok", cand=cand)
+
+    # Check if there is an active revised annex notice that is missing
+    for x in w.email_facts:
+        if x.get("type") == "revised_annex_notice" and x.get("contract") == c.id:
+            a_eff = pdate(x.get("effective_from"))
+            if a_eff and a_eff <= pickup:
+                ann_name = x.get("annex")
+                has_annex = any(norm_name(af["data"].get("name")) == norm_name(ann_name) for _, af in c.annexes)
+                if not has_annex:
+                    return Resolution("missing", missing=("missing", ann_name, {"text": x["quote"], "name": ann_name}, x["doc"]))
+
     msa = _msa_cand(c, lane, pickup)
     amds = _amend_cands(w, c, lane, pickup)
     amd = None
     if amds:
+        valid_amds = [x[2] for x in amds if isinstance(x[2], Cand)]
+        if len(valid_amds) >= 2:
+            cand_latest = valid_amds[-1]
+            cand_prev = valid_amds[-2]
+            if cand_latest.eff == cand_prev.eff:
+                r1_rows = {r["band"]: r["v"] for r in cand_latest.rows}
+                r2_rows = {r["band"]: r["v"] for r in cand_prev.rows}
+                if any(band in r2_rows and r1_rows[band] != r2_rows[band] for band in r1_rows):
+                    pref = fb.precedence(c.id, lane, pickup)
+                    if pref:
+                        use = (pref["fact"].get("value") or {}).get("use")
+                        amd_target = (pref["fact"].get("value") or {}).get("amendment")
+                        chosen = None
+                        for ac in valid_amds:
+                            if amd_target and (amd_target == ac.label or amd_target in ac.label or ac.label in amd_target or amd_target.split("/")[-1] in ac.label or amd_target in ac.doc_ref or amd_target.split("/")[-1] in ac.doc_ref):
+                                chosen = ac
+                                break
+                        if not chosen:
+                            chosen = cand_latest if use in ("amendment", "latest") else cand_prev
+                        chosen.learned = pref
+                        return Resolution("ok", cand=chosen)
+                    return Resolution("conflict", cand=cand_prev, alt=cand_latest)
+
         top = amds[-1][2]
         if isinstance(top, tuple):
             return Resolution("missing", missing=top)
         amd = top
+
     notice = _notice_cand(w, c, fb, lane, pickup)
+    if notice and notice.learned:
+        return Resolution("ok", cand=notice)
     if amd and notice:
         pref = fb.precedence(c.id, lane, pickup)
         if pref:
@@ -221,20 +277,40 @@ def code_of(c: Contract, desc: str) -> str | None:
             if ln and (ln in n or n in ln) and min(len(ln), len(n)) >= 4:
                 if best is None or len(ln) > best[0]:
                     best = (len(ln), cc["code"])
-    return best[1] if best else None
-
-
-def fee_of(c: Contract, code: str):
-    for a in c.d.get("accessorials", []):
-        if a["code"] == code:
-            return a
+    if best:
+        return best[1]
+    dlow = (desc or "").lower()
+    for code, synonyms in [
+        ("FRT", ["freight", "linehaul", "ocean freight", "air freight", "cargo", "carriage", "express air", "air", "express", "standard", "ground", "line haul"]),
+        ("FUEL", ["fuel", "baf", "fsc", "fuel adjustment"]),
+        ("SEC", ["security"]),
+        ("DLV", ["delivery"]),
+        ("CUSTOMS", ["customs", "clearance"]),
+        ("DG", ["dangerous", "hazmat"]),
+        ("DRYICE", ["dry ice", "dryice"]),
+        ("PEAK", ["peak"]),
+        ("STOR", ["storage", "demurrage"]),
+        ("HDL", ["handling", "special handling", "handling fee"]),
+    ]:
+        if any(s in dlow for s in synonyms):
+            return code
     return None
 
 
-def fuel_pct(c: Contract, pickup):
-    m = pickup.strftime("%Y-%m")
+def fee_of(c: Contract, code: str, lane: str | None = None):
+    for a in c.d.get("accessorials", []):
+        if a["code"] == code or (code == "HDL" and a.get("code") in ("HDL", "HANDLING")):
+            if not lane or not a.get("lane") or a.get("lane") == lane:
+                return a
+    return None
+
+
+def fuel_pct(c: Contract, pickup, lane: str | None = None):
+    m = pickup.strftime("%Y-%m") if pickup else None
     for r in c.d.get("fuel", []):
-        if r["month"] == m:
+        if m and r.get("month") == m:
+            return r
+        if lane and r.get("lane") == lane:
             return r
     return None
 
@@ -279,9 +355,28 @@ def price_invoice(w: World, rec: dict, c: Contract, fb: Feedback, pick: dict | N
         if awb is None:
             _price_statement_lines(w, c, rec, lines, out, inv_ev)
             continue
-        lane = next((l["lane"] for l in lines if l.get("lane")), None)
-        line_date = next((l["line_date"] for l in lines if l.get("line_date")), None)
+        lane = next((l["lane"] for l in lines if l.get("lane")), None) or d.get("lane")
+        if not lane and doc.get("subject"):
+            m_subj = re.search(r"\b([A-Z]{3,4}-[A-Z]{3,4})\b", doc.get("subject", ""))
+            if m_subj:
+                lane = m_subj.group(1).upper()
+        if not lane:
+            m_lane = re.search(r"\b([A-Z]{2,4}[A-Z0-9]*-[A-Z]{2,4}[A-Z0-9]*)\b", "\n".join(doc.get("pages", [])))
+            lane = m_lane.group(1).upper() if m_lane else None
+        if not lane and c:
+            c_lanes = {r["lane"] for r in c.d.get("rates", [])} | {r["lane"] for _, af in c.amendments for r in af["data"].get("rates", [])}
+            if len(c_lanes) == 1:
+                lane = list(c_lanes)[0]
+        if not lane:
+            for ef in w.email_facts:
+                if norm_awb(ef.get("awb") or "") == norm_awb(awb or "") and ef.get("lane"):
+                    lane = ef["lane"]
+                    break
+        line_date = next((l["line_date"] for l in lines if l.get("line_date")), None) or d.get("invoice_date")
         pdt, tier, pev = w.pickup(awb, line_date)
+        if pdt is None:
+            pdt = pdate(d.get("invoice_date")) or pdate(doc.get("received"))
+            tier, pev = 4, None
         if pdt is None:
             continue
         out.min_tier = max(out.min_tier, tier)
@@ -315,9 +410,26 @@ def price_invoice(w: World, rec: dict, c: Contract, fb: Feedback, pick: dict | N
             corr, why, evs = None, "", []
             if code == "FRT" and cand and ln.get("unit") in ("kg", None) and ln.get("qty"):
                 kg = float(ln["qty"])
+                vdiv = c.term("volumetric_divisor")
+                dims = d.get("dimensions")
+                actual_gross = None
+                for ef in w.email_facts:
+                    if norm_awb(ef.get("awb") or "") == norm_awb(awb or ""):
+                        if ef.get("actual_kg") is not None:
+                            actual_gross = ef["actual_kg"]
+                        if ef.get("dimensions") and not dims:
+                            dims = ef["dimensions"]
+                a_doc = w.awbs.get(awb) or w.awbs.get(norm_awb(awb or ""))
+                if a_doc and a_doc.get("gross_weight"):
+                    actual_gross = actual_gross or a_doc["gross_weight"]
+                if vdiv and dims:
+                    vol_kg = (dims["pcs"] * dims["l"] * dims["w"] * dims["h"]) / vdiv
+                    correct_kg = max(actual_gross or 0.0, vol_kg)
+                    if 0 < correct_kg < kg:
+                        kg = correct_kg
                 rate, mn, rev = cand.rate(kg)
                 if rate is not None:
-                    corr = money(rate * Decimal(str(ln["qty"])))
+                    corr = money(rate * Decimal(str(kg)))
                     if mn is not None and corr < mn:
                         corr = mn
                     evs = rev + [e for e in (clause_ev(c, "3.2"), clause_ev(c, "3.4")) if e] + ([pev] if pev else [])
@@ -325,12 +437,19 @@ def price_invoice(w: World, rec: dict, c: Contract, fb: Feedback, pick: dict | N
                     correct_freight += corr
                     freight_seen = True
             elif code == "FUEL":
-                fp = fuel_pct(c, pdt)
-                if fp:
+                fp = fuel_pct(c, pdt, lane)
+                f_pct = Decimal(str(fp["pct"])) if fp else (Decimal(str(ln["pct"])) if ln.get("pct") else None)
+                if f_pct is None:
+                    for r in c.d.get("rates", []):
+                        if r.get("lane") == lane and r.get("fuel_pct") is not None:
+                            f_pct = Decimal(str(r["fuel_pct"]))
+                            fp = {"page": r.get("page", 1), "line": r.get("line", "")}
+                            break
+                if f_pct is not None:
                     base = correct_freight if freight_seen else (money(ln["base"]) if ln.get("base") else None)
                     if base is not None:
-                        corr = money(base * Decimal(str(fp["pct"])) / 100)
-                        evs = [{"doc": c.msa_doc["ref"], "page": fp["page"], "quote": fp["line"]}] + [e for e in (clause_ev(c, "4.1"),) if e] + ([pev] if pev else [])
+                        corr = money(base * f_pct / 100)
+                        evs = ([{"doc": c.msa_doc["ref"], "page": fp["page"], "quote": fp["line"]}] if fp else [inv_ev(ln)]) + [e for e in (clause_ev(c, "4.1"), clause_ev(c, "3.3")) if e] + ([pev] if pev else [])
                         why = "fuel"
             elif code == "SEC":
                 fe = fee_of(c, "SEC")
@@ -339,6 +458,24 @@ def price_invoice(w: World, rec: dict, c: Contract, fb: Feedback, pick: dict | N
                     corr = money(Decimal(str(fe["fee"])) * Decimal(str(kg)))
                     evs = [{"doc": c.msa_doc["ref"], "page": fe["page"], "quote": fe["line"]}] + [e for e in (clause_ev(c, "4.2"),) if e]
                     why = "security"
+                elif fe:
+                    corr = money(Decimal(str(fe["fee"])))
+                    evs = [{"doc": c.msa_doc["ref"], "page": fe["page"], "quote": fe["line"]}] + [e for e in (clause_ev(c, "4.2"),) if e]
+                    why = "security"
+                else:
+                    sec_fee = None
+                    for r in c.d.get("rates", []):
+                        if r.get("lane") == lane and r.get("security") is not None:
+                            sec_fee = Decimal(str(r["security"]))
+                            break
+                    if sec_fee is not None:
+                        corr = money(sec_fee)
+                        evs = [e for e in (clause_ev(c, "3.4"),) if e]
+                        why = "security"
+                    else:
+                        corr = billed
+                        evs = [inv_ev(ln)]
+                        why = "security"
             elif code in ("DG", "DRYICE"):
                 corr, evs, why = _dg_line(w, c, awb, code, ln)
             elif code == "PEAK":
@@ -349,6 +486,16 @@ def price_invoice(w: World, rec: dict, c: Contract, fb: Feedback, pick: dict | N
                 corr, evs, why = _delivery_line(w, c, awb, ln)
             elif code == "CUSTOMS":
                 corr, evs, why = _customs_line(w, c, awb, ln)
+            elif code in ("HDL", "HANDLING") or (code and fee_of(c, code, lane)):
+                fe = fee_of(c, code or "HDL", lane)
+                if fe:
+                    corr = money(Decimal(str(fe["fee"])))
+                    evs = [{"doc": c.msa_doc["ref"], "page": fe.get("page", 1), "quote": fe.get("line", "")}]
+                    why = fe.get("name", code).lower()
+                else:
+                    corr = billed
+                    evs = [inv_ev(ln)]
+                    why = "handling"
             if corr is None:
                 out.skipped.append(ln)
                 continue

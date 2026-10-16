@@ -35,7 +35,8 @@ def norm_name(s: str) -> str:
 
 
 def norm_awb(a: str) -> str:
-    return re.sub(r"-H\d+$", "", a or "")
+    s = re.sub(r"-H\d+$", "", a or "").strip()
+    return re.sub(r"^(?:AWB|MAWB|HAWB)[-_]?", "", s, flags=re.I).strip("- \t")
 
 
 def add_months(d: date, n: int) -> date:
@@ -81,14 +82,23 @@ class Contract:
 
     def carrier_party(self) -> str | None:
         for p in self.schedule1():
+            if p.get("party_role") == "Carrier":
+                return p["party"]
+        for p in self.schedule1():
+            if p.get("party") and p["party"] in (self.id or ""):
+                return p["party"]
+        for p in self.schedule1():
             if set(p["categories"]) & {"rates", "waivers", "treasury"}:
                 return p["party"]
         return None
 
     def contact(self, category: str, party: str | None = None):
         party = party or self.carrier_party()
+        norm = lambda s: (s or "").lower().replace("-", "_")
+        c_target = norm(category)
         for p in self.schedule1():
-            if category in p["categories"] and (party is None or p["party"] == party):
+            p_cats = [norm(c) for c in p.get("categories", [])]
+            if c_target in p_cats and (party is None or p["party"] == party):
                 return p
         return None
 
@@ -114,6 +124,7 @@ class World:
         self._load_contracts()
         self.invoices: list[dict] = []            # invoice / statement / credit-note fact records with their doc
         self.credit_notes: list[dict] = []
+        self.payment_advices: list[dict] = []
         self.tracking: dict[str, list[dict]] = {}
         self.awbs: dict[str, dict] = {}
         self.dgds: dict[str, dict] = {}
@@ -124,15 +135,67 @@ class World:
 
     # --------------------------------------------------------------------------------------------------------
     def _load_contracts(self):
+        msa_docs = []
         for r, f in self.facts.items():
             doc = self.by_ref[r]
             if f["kind"] == "msa":
                 cid = f["data"].get("contract_id")
-                if not cid:
-                    continue
-                c = self.contracts.setdefault(cid, Contract(cid))
-                if c.msa is None or doc["received"] < c.msa_doc["received"]:
-                    c.msa, c.msa_doc = f, doc
+                if cid:
+                    msa_docs.append((doc.get("received_ts", 0), doc.get("received", ""), r, f, doc))
+        msa_docs.sort(key=lambda x: (x[0], x[2]))
+
+        for _, _, r, f, doc in msa_docs:
+            cid = f["data"].get("contract_id")
+            c = self.contracts.setdefault(cid, Contract(cid))
+            # Tag clauses with source doc_ref
+            f_clauses = f["data"].get("clauses", {})
+            for cl in f_clauses.values():
+                if isinstance(cl, dict) and "doc_ref" not in cl:
+                    cl["doc_ref"] = doc["ref"]
+
+            if c.msa is None:
+                c.msa = {"kind": "msa", "data": dict(f["data"])}
+                c.msa_doc = doc
+            else:
+                c_data = c.msa["data"]
+                f_data = f["data"]
+                if "terms" in f_data:
+                    c_data.setdefault("terms", {}).update(f_data["terms"])
+                if "clauses" in f_data:
+                    c_data.setdefault("clauses", {}).update(f_data["clauses"])
+                if f_data.get("rates"):
+                    if not c_data.get("rates"):
+                        c_data["rates"] = list(f_data["rates"])
+                    else:
+                        existing_map = {(r["lane"], r["band"]): i for i, r in enumerate(c_data["rates"])}
+                        for nr in f_data["rates"]:
+                            key = (nr["lane"], nr["band"])
+                            if key in existing_map:
+                                c_data["rates"][existing_map[key]] = nr
+                            else:
+                                c_data["rates"].append(nr)
+                for tbl in ["fuel", "accessorials", "charge_codes", "fx", "schedule1", "periods"]:
+                    if not c_data.get(tbl) and f_data.get(tbl):
+                        c_data[tbl] = f_data[tbl]
+                    elif c_data.get(tbl) and f_data.get(tbl) and tbl == "schedule1":
+                        existing_emails = {p.get("email") for p in c_data[tbl] if p.get("email")}
+                        for p in f_data[tbl]:
+                            if not p.get("email") or p.get("email") not in existing_emails:
+                                c_data[tbl].append(p)
+                    elif c_data.get(tbl) and f_data.get(tbl) and tbl == "fx":
+                        existing_months = {r["month"]: i for i, r in enumerate(c_data[tbl]) if "month" in r}
+                        for r in f_data[tbl]:
+                            if "month" in r:
+                                if r["month"] in existing_months:
+                                    c_data[tbl][existing_months[r["month"]]] = r
+                                else:
+                                    c_data[tbl].append(r)
+                if f_data.get("currency") and not c_data.get("currency"):
+                    c_data["currency"] = f_data["currency"]
+                # If newer doc has rates or terms, keep msa_doc updated
+                if f_data.get("rates") or not c_data.get("rates"):
+                    c.msa_doc = doc
+
         for r, f in self.facts.items():
             doc = self.by_ref[r]
             if f["kind"] in ("amendment", "annex"):
@@ -148,10 +211,14 @@ class World:
     def _load_rest(self):
         for r, f in self.facts.items():
             doc = self.by_ref[r]
-            k, d = f["kind"], f["data"]
+            k, d = f.get("kind"), f.get("data")
+            if not d:
+                continue
             if k in ("invoice", "statement", "credit_note"):
                 rec = {"doc": doc, "fact": f, "d": d}
                 (self.credit_notes if (k == "credit_note" or d.get("kind") == "credit_note" or d.get("credit")) else self.invoices).append(rec)
+            elif k == "payment_advice":
+                self.payment_advices.append({"doc": doc, "d": d})
             elif k == "tracking":
                 for e in d["events"]:
                     self.tracking.setdefault(e["awb"], []).append({**e, "doc": doc})
@@ -170,6 +237,52 @@ class World:
     def _ledger(self) -> dict[str, dict]:
         """Latest known ledger row per invoice number (a later register wins)."""
         out: dict[str, dict] = {}
+        for rec in self.invoices:
+            d = rec["d"]
+            inv_id = d.get("invoice_id")
+            if not inv_id:
+                continue
+            due = d.get("due_date")
+            if not due and d.get("invoice_date"):
+                c = self.contract_of(rec)
+                pdays = c.term("payment_days", 30) if c else 30
+                from datetime import timedelta
+                idate = pdate(d["invoice_date"])
+                if idate:
+                    due = (idate + timedelta(days=pdays)).isoformat()
+            out[norm_inv(inv_id)] = {
+                "invoice_no": inv_id,
+                "status": "open",
+                "amount": d.get("total") or 0.0,
+                "due_date": due,
+                "paid_date": None,
+                "currency": d.get("currency", "USD"),
+                "line": f"Invoice {inv_id} due {due}",
+                "doc": rec["doc"],
+                "page": 1
+            }
+        for pa in getattr(self, "payment_advices", []):
+            d = pa["d"]
+            inv_ref = d.get("invoice_id")
+            if inv_ref:
+                key = norm_inv(inv_ref)
+                if key in out:
+                    out[key]["status"] = "paid"
+                    out[key]["paid_date"] = d.get("paid_date")
+                    if d.get("amount"):
+                        out[key]["paid_amount"] = d["amount"]
+                else:
+                    out[key] = {
+                        "invoice_no": inv_ref,
+                        "status": "paid",
+                        "amount": d.get("amount") or 0.0,
+                        "due_date": None,
+                        "paid_date": d.get("paid_date"),
+                        "currency": d.get("currency", "USD"),
+                        "line": f"Payment remittance for {inv_ref} paid {d.get('paid_date')}",
+                        "doc": pa["doc"],
+                        "page": 1
+                    }
         for reg in self.registers:
             for row in reg["rows"]:
                 out[norm_inv(row["invoice_no"])] = {**row, "doc": reg["doc"]}
@@ -184,7 +297,20 @@ class World:
             for cid, c in self.contracts.items():
                 if ref in cid or cid in ref:
                     return c
+        inv_id = rec["d"].get("invoice_id") or ""
+        inv_pref = inv_id.split("-")[0].upper() if "-" in inv_id else ""
+        if inv_pref:
+            pref_matches = [c for c in self.contracts.values() if c.id.startswith(inv_pref)]
+            if len(pref_matches) == 1:
+                return pref_matches[0]
         cands = [c for c in self.contracts.values() if c.currency == rec["d"].get("currency")]
+        if len(cands) == 1:
+            return cands[0]
+        inv_lanes = {ln.get("lane") for ln in rec["d"].get("lines", []) if ln.get("lane")}
+        if inv_lanes:
+            lane_cands = [c for c in self.contracts.values() if any(r.get("lane") in inv_lanes for r in c.d.get("rates", []))]
+            if len(lane_cands) == 1:
+                return lane_cands[0]
         return cands[0] if len(cands) == 1 else (list(self.contracts.values())[0] if len(self.contracts) == 1 else None)
 
     def pickup(self, awb: str, inv_line_date: str | None):
@@ -212,6 +338,9 @@ class World:
         for r in c.d.get("fx") or []:
             if r["month"] == month:
                 return r
+        fx_list = c.d.get("fx") or []
+        if len(fx_list) == 1:
+            return fx_list[0]
         return None
 
     def to_usd(self, c: Contract, amount: Decimal, invoice_date: str, currency: str):
