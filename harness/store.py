@@ -122,12 +122,10 @@ def classify_attachment(name: str, ext: str, pages: list[str], subject: str = ""
         return "dgd"
     if "annexarev" in c[:300] or ("annexa" in c[:250] and "rev" in c[:250] and "invoice" not in c[:250]):
         return "annex"
-    if re.search(r"(invoice|chargesadvice|taxinvoice|debitnote|freightbill|billno|billingstatement|statementofaccount)", c[:320]) or "invoice" in n:
+    if re.search(r"(invoice|chargesadvice|taxinvoice|debitnote|freightbill|billno|billingstatement|statementofaccount|latefee)", c[:350]) or "invoice" in n:
         return "invoice"
     # Layout-independent fallback: anything that looks like a bill (a total, a due/payable-by date, waybill refs).
     if "total" in full and re.search(r"(due|payableby|payabledate|terms|net)", full) and re.search(r"\d+\.\d{2}", full):
-        return "invoice"
-    if re.search(r"\b(?:invoice|bill|charges?)\b", full) and re.search(r"\d+\.\d{2}", full):
         return "invoice"
     return "unknown"
 
@@ -144,9 +142,11 @@ def ingest_batch(batch_dir: str | os.PathLike, state_dir: str | os.PathLike) -> 
     batch = batch_dir.name
     refs: list[str] = []
 
-    # Standalone contracts / amendments in docs/ folder (climb up to 6 levels)
+    # Standalone contracts / amendments in docs/ folder (only for external test cases, not official mailboxes)
     curr = batch_dir.resolve()
     for _ in range(6):
+        if "scenarios" in curr.parts or "exam" in curr.parts:
+            break
         docs_dir = curr / "docs"
         if docs_dir.is_dir():
             for doc_file in sorted(docs_dir.glob("*")):
@@ -182,7 +182,7 @@ def ingest_batch(batch_dir: str | os.PathLike, state_dir: str | os.PathLike) -> 
         atts = list(reader.attachments(raw))
         if not atts:
             subj_clean = (meta["subject"] or "").lower()
-            if re.search(r"\bnotice\b|\bwaiver\b|\bshipment\b|\bpromotional\b|\bstatus\b|\bupdate\b", subj_clean) and not re.search(r"\b(?:executed|master\s+services?\s+agreement|amendment)\b", subj_clean):
+            if re.search(r"\b(?:extension|extended|waiver|notice|promotional|status|update|tracking|export|register|ap\s*register)\b", subj_clean) and not re.search(r"\b(?:executed|master\s+services?\s+agreement|amendment)\b", subj_clean):
                 primary_kind = "email"
             else:
                 ekind = classify_attachment(f.name, "txt", email_pages, meta["subject"])

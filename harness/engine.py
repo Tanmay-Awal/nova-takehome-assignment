@@ -845,7 +845,7 @@ def cashback(ctx: Ctx):
                         amt = money(qs * Decimal(str(pct)) / 100)
                         held, _ = credits_held(ctx, c, "promised_credit", period_str)
                         owed = amt - held
-                        if owed > 0:
+                        if owed > Decimal("0.05"):
                             ev2 = [clause_ev(c, ac_clause, 400), clause_ev(c, "1.1", 500), clause_ev(c, "1.4")] + ev
                             _emit_cashback(ctx, c, period_str, "promised_credit", owed, end, days, ev2)
                 n += 1

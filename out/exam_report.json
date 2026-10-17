@@ -176,6 +176,11 @@
      "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
      "page": 3,
      "quote": "4.1 Fuel surcharge. Fuel surcharge is the Annex C percentage for the month of the Pickup Date, applied to the base freight charge only. It does not apply to Annex D accessorials or the security surcharge."
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 3,
+     "quote": "3.3 Chargeable weight. Chargeable weight is the greater of actual and volumetric weight (L x W x H cm / 6000), rounded up to the next 0.5 kg."
     }
    ],
    "missing_doc": null,
@@ -309,7 +314,7 @@
    "amount_range": null,
    "deadline": null,
    "action": "draft:dispute",
-   "confidence": 0.88,
+   "confidence": 0.73,
    "evidence": [
     {
      "doc": "batch_02/0016.eml#CDI-3031-0306.pdf",
@@ -350,6 +355,11 @@
      "doc": "batch_01/0001.eml#MSA-CDA-IN-EXP-E91.pdf",
      "page": 3,
      "quote": "4.1 Fuel surcharge. Fuel surcharge is the Annex C percentage for the month of the Pickup Date, applied to the base freight charge only. It does not apply to Annex D accessorials or the security surcharge."
+    },
+    {
+     "doc": "batch_01/0001.eml#MSA-CDA-IN-EXP-E91.pdf",
+     "page": 3,
+     "quote": "3.3 Chargeable weight. Chargeable weight is the greater of actual and volumetric weight (L x W x H cm / 6000), rounded up to the next 0.5 kg."
     },
     {
      "doc": "batch_01/0001.eml#MSA-CDA-IN-EXP-E91.pdf",

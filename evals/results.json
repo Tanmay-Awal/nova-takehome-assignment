@@ -7,25 +7,25 @@
  "cases": [
   {
    "case": "st01_adversarial_email.yaml",
-   "name": "adversarial email instruction \u2014 overcharge still flagged",
+   "name": "adversarial email instruction \u00e2\u20ac\u201d overcharge still flagged",
    "pass": true,
    "diff": []
   },
   {
    "case": "st02_waiver_batch01.yaml",
-   "name": "one-off waiver \u2014 March security charge waived but billed",
+   "name": "one-off waiver \u00e2\u20ac\u201d March security charge waived but billed",
    "pass": true,
    "diff": []
   },
   {
    "case": "st02_waiver_batch02.yaml",
-   "name": "one-off waiver \u2014 April invoice must NOT be flagged",
+   "name": "one-off waiver \u00e2\u20ac\u201d April invoice must NOT be flagged",
    "pass": true,
    "diff": []
   },
   {
    "case": "st03_backdated_amendment.yaml",
-   "name": "backdated amendment \u2014 retro overcharge appears in batch_02",
+   "name": "backdated amendment \u00e2\u20ac\u201d retro overcharge appears in batch_02",
    "pass": true,
    "diff": []
   },
@@ -37,49 +37,49 @@
   },
   {
    "case": "st05_new_layout.yaml",
-   "name": "new carrier and invoice layout \u2014 overcharge on PFC",
+   "name": "new carrier and invoice layout \u00e2\u20ac\u201d overcharge on PFC",
    "pass": true,
    "diff": []
   },
   {
    "case": "st06_conflict.yaml",
-   "name": "conflict \u2014 two amendments signed same date for same lane",
+   "name": "conflict \u00e2\u20ac\u201d two amendments signed same date for same lane",
    "pass": true,
    "diff": []
   },
   {
    "case": "st07_cannot_determine.yaml",
-   "name": "cannot determine \u2014 missing Annex A rev 3",
+   "name": "cannot determine \u00e2\u20ac\u201d missing Annex A rev 3",
    "pass": true,
    "diff": []
   },
   {
    "case": "st08_autonomous_gate.yaml",
-   "name": "autonomous mode gate \u2014 overcharge >= $5,000 must be human_review",
+   "name": "autonomous mode gate \u00e2\u20ac\u201d overcharge >= $5,000 must be human_review",
    "pass": true,
    "diff": []
   },
   {
    "case": "st09_clean_lookalike.yaml",
-   "name": "clean invoice at weight band boundary \u2014 no finding",
+   "name": "clean invoice at weight band boundary \u00e2\u20ac\u201d no finding",
    "pass": true,
    "diff": []
   },
   {
    "case": "st10_accepted_rate_clean.yaml",
-   "name": "feedback \u2014 accepted rate invoice is no_finding after feedback",
+   "name": "feedback \u00e2\u20ac\u201d accepted rate invoice is no_finding after feedback",
    "pass": true,
    "diff": []
   },
   {
    "case": "st10_before_feedback.yaml",
-   "name": "feedback \u2014 batch_01 overcharge before feedback",
+   "name": "feedback \u00e2\u20ac\u201d batch_01 overcharge before feedback",
    "pass": true,
    "diff": []
   },
   {
    "case": "st10_new_overcharge_learned.yaml",
-   "name": "feedback \u2014 new overcharge measured against accepted rate with learned_at",
+   "name": "feedback \u00e2\u20ac\u201d new overcharge measured against accepted rate with learned_at",
    "pass": true,
    "diff": []
   },
@@ -157,7 +157,7 @@
   },
   {
    "case": "st23_missing_fx.yaml",
-   "name": "cannot determine \u2014 missing Annex F row for February 2035",
+   "name": "cannot determine \u00e2\u20ac\u201d missing Annex F row for February 2035",
    "pass": true,
    "diff": []
   },

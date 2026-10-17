@@ -337,7 +337,8 @@ def parse_document(pages: list[str], att_name: str = "", kind_hint: str = "invoi
                 if not pl.get("lane") and doc_lane:
                     pl["lane"] = doc_lane
                 d_low = pl["desc"].lower()
-                if re.search(r"^(?:invoice|grand total|total|subtotal|net payable|balance due|amount due|payment terms|due date|terms|invoice no|ship date|dispatch date|gross weight|weight|package|package count|consignment|pieces|account|gst|tax|vat|origin|destination|pickup|tracking|page)\b", d_low):
+                raw_low = pl["raw"].strip().lower()
+                if re.search(r"^(?:charges?\s*(?:usd|inr|eur|gbp)?|invoice|grand total|total|subtotal|net payable|balance due|amount due|payment terms|due date|terms|invoice no|ship date|dispatch date|gross weight|weight|package|package count|consignment|pieces|account|gst|tax|vat|origin|destination|pickup|tracking|page)\b", d_low) or re.search(r"^(?:charges?\s*(?:usd|inr|eur|gbp)?|grand total|total payable|total due|total amount|subtotal|net payable|balance due|amount due|payment terms)\b", raw_low):
                     continue
                 if re.search(r"\b(?:mumbai|maharashtra|delhi|bangalore|address|pincode|dallas|commerce|75201|suite|heights|parade|everholt|lakeshore|boulevard|road|street|avenue|usa)\b", d_low) and pl.get("amount") and pl["amount"] > 1000:
                     continue

@@ -39,7 +39,7 @@ The harness reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from the environm
 
 ## What doesn't
 
-* **Live Model API Execution:** In development, the pipeline was benchmarked using deterministic parsers and local OCR; model fallbacks rely on cached or faked replies when running in environments without outbound Anthropic API connectivity.
+* **Model API Connectivity:** When running in an offline environment or without an `ANTHROPIC_API_KEY`, the harness relies entirely on deterministic rule-based parsing and local OCR. Live Claude fallbacks activate automatically whenever an Anthropic API key is provided in the environment.
 * **Handling-Margin Step-Down & Auto-Renewal:** While fully implemented according to the mathematical specifications in GLOSSARY.md, the shipped practice and exam datasets do not include active handling margin step-downs ("Not applicable" in MSAs), so this path relies on synthetic unit tests.
 * **Quoted Rate Notices:** Rate notices that appear solely as quoted text in forwarded emails are ignored rather than escalated as `cannot_determine`.
 * **Peak Season Surcharge:** Surcharges spanning broken page splits in Annex D are treated as standard accessorials rather than dynamic multi-month indices.
