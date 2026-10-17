@@ -186,9 +186,9 @@ def parse_line(ln: str, page: int, dayfirst: bool, default_awb: str | None = Non
                     "amount": num(amt_str), "consistent": True}
 
     am = AWB_RE.search(raw)
-    if not am and not default_awb:
+    if not am:
         return None
-    awb = am.group(1) if am else default_awb
+    awb = am.group(1)
     work = raw
     if am:
         work = work.replace(am.group(0), " ", 1)

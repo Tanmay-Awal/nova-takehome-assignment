@@ -314,7 +314,7 @@
    "amount_range": null,
    "deadline": null,
    "action": "draft:dispute",
-   "confidence": 0.73,
+   "confidence": 0.88,
    "evidence": [
     {
      "doc": "batch_02/0016.eml#CDI-3031-0306.pdf",

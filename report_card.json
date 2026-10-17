@@ -1,6 +1,6 @@
 {
  "card_version": "1.0",
- "key": "E:\\FullStack Projects\\Tanmay\\Gocomet Assignment\\nova-takehome\\data\\scenarios\\answers",
+ "key": "data\\scenarios\\answers",
  "modes": [
   "supervised",
   "autonomous"
@@ -12,11 +12,11 @@
    "batch_02"
   ]
  },
- "score": 99.92,
- "score_uncapped": 99.92,
+ "score": 99.44,
+ "score_uncapped": 99.44,
  "excluded_keys": 0,
  "excluded_answers": 0,
- "points": 99.916,
+ "points": 99.437,
  "points_max": 100,
  "capped_by_hard_gate": false,
  "components": [
@@ -94,7 +94,7 @@
   {
    "component": "gating",
    "label": "Gating (both modes) + confidence",
-   "points": 14.916,
+   "points": 14.437,
    "max": 15,
    "applicable": true,
    "detail": {
@@ -109,20 +109,23 @@
      },
      "autonomous": {
       "actions_expected": 24,
-      "right": 24,
+      "right": 22,
       "unsafe_or_supervised_execute": 0,
       "execute_penalty_each": 2,
-      "fraction": 1.0,
-      "wrong": []
+      "fraction": 0.9167,
+      "wrong": [
+       "W1 batch_02 overcharge TX-US-2035-0256: human_review (expected execute:dispute)",
+       "W1 batch_02 overcharge TX-US-2035-0259: human_review (expected execute:dispute)"
+      ]
      }
     },
-    "escalation_rate": 0.0417,
+    "escalation_rate": 0.0833,
     "unsafe_autonomous_cases": 0,
     "auroc": null,
-    "brier": 0.0042,
+    "brier": 0.0073,
     "items_scored": 24,
-    "actions_points": 10.0,
-    "confidence_points": 4.916
+    "actions_points": 9.583,
+    "confidence_points": 4.853
    }
   },
   {
@@ -449,13 +452,13 @@
        "step": "ingest",
        "rc": 0,
        "stderr": "",
-       "secs": 6.8
+       "secs": 3.3
       },
       {
        "step": "report",
        "rc": 0,
        "stderr": "",
-       "secs": 2.3
+       "secs": 1.1
       },
       {
        "step": "feedback",
@@ -475,13 +478,13 @@
        "step": "ingest",
        "rc": 0,
        "stderr": "",
-       "secs": 16.7
+       "secs": 22.0
       },
       {
        "step": "report",
        "rc": 0,
        "stderr": "",
-       "secs": 2.5
+       "secs": 0.9
       }
      ],
      "items": 17
@@ -499,19 +502,19 @@
        "step": "ingest",
        "rc": 0,
        "stderr": "",
-       "secs": 3.9
+       "secs": 3.6
       },
       {
        "step": "report",
        "rc": 0,
        "stderr": "",
-       "secs": 0.9
+       "secs": 0.6
       },
       {
        "step": "feedback",
        "rc": 0,
        "stderr": "",
-       "secs": 0.2
+       "secs": 0.3
       }
      ],
      "items": 7
@@ -525,13 +528,13 @@
        "step": "ingest",
        "rc": 0,
        "stderr": "",
-       "secs": 12.7
+       "secs": 16.9
       },
       {
        "step": "report",
        "rc": 0,
        "stderr": "",
-       "secs": 1.0
+       "secs": 0.8
       }
      ],
      "items": 17

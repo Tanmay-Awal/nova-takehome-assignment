@@ -180,17 +180,9 @@ def ingest_batch(batch_dir: str | os.PathLike, state_dir: str | os.PathLike) -> 
                 "subject": str(msg["Subject"] or "")}
         email_pages = reader.pages_of(raw, "eml")
         atts = list(reader.attachments(raw))
-        if not atts:
-            subj_clean = (meta["subject"] or "").lower()
-            if re.search(r"\b(?:extension|extended|waiver|notice|promotional|status|update|tracking|export|register|ap\s*register)\b", subj_clean) and not re.search(r"\b(?:executed|master\s+services?\s+agreement|amendment)\b", subj_clean):
-                primary_kind = "email"
-            else:
-                ekind = classify_attachment(f.name, "txt", email_pages, meta["subject"])
-                primary_kind = ekind if ekind in ("msa", "amendment", "annex", "invoice", "credit_note", "payment_advice") else "email"
-        else:
-            primary_kind = "email"
+        primary_kind = "email"
         _write(state / "docs" / f"{_h(email_ref)}.json",
-               {**meta, "ref": email_ref, "att_name": f.name if primary_kind != "email" else None, "kind": primary_kind, "scan": False, "pages": email_pages})
+               {**meta, "ref": email_ref, "att_name": None, "kind": primary_kind, "scan": False, "pages": email_pages})
         refs.append(email_ref)
         for att_name, data in atts:
             ext = att_name.rsplit(".", 1)[-1].lower() if "." in att_name else ""
